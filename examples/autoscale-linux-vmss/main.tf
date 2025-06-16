@@ -1,3 +1,5 @@
+data "azurerm_client_config" "current" {}
+
 # This ensures we have unique CAF compliant names for our resources.
 module "naming" {
   source  = "Azure/naming/azurerm"
@@ -126,6 +128,52 @@ resource "tls_private_key" "example_ssh" {
   rsa_bits  = 4096
 }
 
+resource "random_password" "admin_password" {
+  length           = 22
+  min_lower        = 2
+  min_numeric      = 2
+  min_special      = 2
+  min_upper        = 2
+  override_special = "!#$%&()*+,-./:;<=>?@[]^_{|}~"
+  special          = true
+}
+
+module "avm_res_keyvault_vault" {
+  source  = "Azure/avm-res-keyvault-vault/azurerm"
+  version = "=0.10.0"
+
+  location                    = azurerm_resource_group.this.location
+  name                        = "${module.naming.key_vault.name_unique}-linux-ptp"
+  resource_group_name         = azurerm_resource_group.this.name
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  enabled_for_disk_encryption = true
+  network_acls = {
+    default_action = "Allow"
+    bypass         = "AzureServices"
+  }
+  role_assignments = {
+    deployment_user_secrets = { #give the deployment user access to secrets
+      role_definition_id_or_name = "Key Vault Secrets Officer"
+      principal_id               = data.azurerm_client_config.current.object_id
+    }
+  }
+  secrets = {
+    admin_password = {
+      name = "admin-password"
+    }
+  }
+  secrets_value = {
+    admin_password = random_password.admin_password.result
+  }
+  tags = local.tags
+  wait_for_rbac_before_key_operations = {
+    create = "60s"
+  }
+  wait_for_rbac_before_secret_operations = {
+    create = "60s"
+  }
+}
+
 module "terraform_azurerm_avm_res_compute_virtualmachinescaleset" {
   source  = "Azure/avm-res-compute-virtualmachinescaleset/azurerm"
   version = "0.4.0"
@@ -135,7 +183,7 @@ module "terraform_azurerm_avm_res_compute_virtualmachinescaleset" {
   name                        = module.naming.virtual_machine_scale_set.name_unique
   resource_group_name         = azurerm_resource_group.this.name
   user_data_base64            = null
-  admin_password              = "P@ssw0rd1234!"
+  admin_password              = random_password.admin_password.result
   admin_ssh_keys = [(
     {
       id         = tls_private_key.example_ssh.id
