@@ -5,13 +5,13 @@ terraform {
       source  = "hashicorp/azurerm"
       version = ">= 3.116, < 5"
     }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "4.0.6"
-    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.7"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "4.0.6"
     }
   }
 }

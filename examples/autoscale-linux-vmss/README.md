@@ -14,6 +14,8 @@ This example demonstrates a deployment of linux VMSS with autoscale setting modu
 - availability zones
 
 ```hcl
+data "azurerm_client_config" "current" {}
+
 # This ensures we have unique CAF compliant names for our resources.
 module "naming" {
   source  = "Azure/naming/azurerm"
@@ -142,6 +144,52 @@ resource "tls_private_key" "example_ssh" {
   rsa_bits  = 4096
 }
 
+resource "random_password" "admin_password" {
+  length           = 22
+  min_lower        = 2
+  min_numeric      = 2
+  min_special      = 2
+  min_upper        = 2
+  override_special = "!#$%&()*+,-./:;<=>?@[]^_{|}~"
+  special          = true
+}
+
+module "avm_res_keyvault_vault" {
+  source  = "Azure/avm-res-keyvault-vault/azurerm"
+  version = "=0.10.0"
+
+  location                    = azurerm_resource_group.this.location
+  name                        = "${module.naming.key_vault.name_unique}-linux-ptp"
+  resource_group_name         = azurerm_resource_group.this.name
+  tenant_id                   = data.azurerm_client_config.current.tenant_id
+  enabled_for_disk_encryption = true
+  network_acls = {
+    default_action = "Allow"
+    bypass         = "AzureServices"
+  }
+  role_assignments = {
+    deployment_user_secrets = { #give the deployment user access to secrets
+      role_definition_id_or_name = "Key Vault Secrets Officer"
+      principal_id               = data.azurerm_client_config.current.object_id
+    }
+  }
+  secrets = {
+    admin_password = {
+      name = "admin-password"
+    }
+  }
+  secrets_value = {
+    admin_password = random_password.admin_password.result
+  }
+  tags = local.tags
+  wait_for_rbac_before_key_operations = {
+    create = "60s"
+  }
+  wait_for_rbac_before_secret_operations = {
+    create = "60s"
+  }
+}
+
 module "terraform_azurerm_avm_res_compute_virtualmachinescaleset" {
   source  = "Azure/avm-res-compute-virtualmachinescaleset/azurerm"
   version = "0.4.0"
@@ -151,7 +199,7 @@ module "terraform_azurerm_avm_res_compute_virtualmachinescaleset" {
   name                        = module.naming.virtual_machine_scale_set.name_unique
   resource_group_name         = azurerm_resource_group.this.name
   user_data_base64            = null
-  admin_password              = "P@ssw0rd1234!"
+  admin_password              = random_password.admin_password.result
   admin_ssh_keys = [(
     {
       id         = tls_private_key.example_ssh.id
@@ -277,6 +325,8 @@ The following requirements are needed by this module:
 
 - <a name="requirement_azurerm"></a> [azurerm](#requirement\_azurerm) (>= 3.116, < 5)
 
+- <a name="requirement_random"></a> [random](#requirement\_random) (~> 3.7)
+
 - <a name="requirement_tls"></a> [tls](#requirement\_tls) (4.0.6)
 
 ## Resources
@@ -293,7 +343,9 @@ The following resources are used by this module:
 - [azurerm_subnet_nat_gateway_association.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_nat_gateway_association) (resource)
 - [azurerm_subnet_network_security_group_association.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/subnet_network_security_group_association) (resource)
 - [azurerm_virtual_network.this](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/virtual_network) (resource)
+- [random_password.admin_password](https://registry.terraform.io/providers/hashicorp/random/latest/docs/resources/password) (resource)
 - [tls_private_key.example_ssh](https://registry.terraform.io/providers/hashicorp/tls/4.0.6/docs/resources/private_key) (resource)
+- [azurerm_client_config.current](https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/data-sources/client_config) (data source)
 
 <!-- markdownlint-disable MD013 -->
 ## Required Inputs
@@ -345,6 +397,12 @@ Description: The name of the Virtual Machine Scale Set.
 ## Modules
 
 The following Modules are called:
+
+### <a name="module_avm_res_keyvault_vault"></a> [avm\_res\_keyvault\_vault](#module\_avm\_res\_keyvault\_vault)
+
+Source: Azure/avm-res-keyvault-vault/azurerm
+
+Version: =0.10.0
 
 ### <a name="module_azurerm_monitor_autoscale_setting"></a> [azurerm\_monitor\_autoscale\_setting](#module\_azurerm\_monitor\_autoscale\_setting)
 
